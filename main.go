@@ -260,7 +260,7 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 
 		g.SendLoginConfirmed(conn, userID, nickname.(string))
 
-		balance, _ := userBalances.LoadOrStore(userID, 100.0)
+		balance, _ := userBalances.LoadOrStore(userID, 10000.0)
 		g.SendBalance(conn, balance.(float64))
 
 	case "bet":
@@ -298,7 +298,14 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 }
 
 func (g *Game) HandleStatsRequest(w http.ResponseWriter, r *http.Request) {
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "*")
+
+	if r.Method == "OPTIONS" {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
 	var output string
 	if g.statistics.rounds == 0 {
@@ -375,7 +382,7 @@ func calculateMultiplierGrowth(currentMulti float64) float64 {
 func calculateGameEndTime() time.Duration {
 	// 基礎遊戲時間範圍
 	const minDuration = 0.0          // 最短 0 秒
-	const maxDuration = 12.0         // 最長 12 秒
+	const maxDuration = 15.0         // 最長 15 秒
 	const targetHouseEdgeRate = 0.05 // 目標賠率 5%
 	const fuzzyRate = 0.25           // 加入 25% 隨機變化
 
