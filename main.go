@@ -98,6 +98,7 @@ func (g *Game) StartBettingPhase() {
 					"phase":      "betting",
 					"countdown":  g.phaseEndTime.UnixMilli() - time.Now().UnixMilli(),
 					"multiplier": g.multiplier,
+					"multi":      0.0,
 				})
 			} else {
 				ticker.Stop()
@@ -153,7 +154,7 @@ func (g *Game) StartCashoutPhase() {
 }
 
 func (g *Game) StartConfiscatePhase() {
-	const PHASE_DURATION_SEC = 5
+	const PHASE_DURATION_SEC = 10
 
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
