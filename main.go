@@ -86,6 +86,7 @@ func (g *Game) StartBettingPhase() {
 		"phase":      "betting",
 		"countdown":  g.phaseEndTime.UnixMilli() - time.Now().UnixMilli(),
 		"multiplier": g.multiplier,
+		"multi":      0.0,
 	})
 
 	ticker := time.NewTicker(100 * time.Millisecond)
