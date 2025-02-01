@@ -37,6 +37,7 @@ type Game struct {
 
 type Player struct {
 	UserID      string
+	Nickname    string
 	BetAmount   float64
 	LockedMulti float64
 	IsActive    bool
@@ -51,8 +52,18 @@ type Stats struct {
 }
 
 var (
-	userBalances sync.Map
-	gameInstance = NewGame()
+	adjectives = [...]string{"毛茸茸的", "兇猛的", "危險的", "有毒的", "溫馴的", "敏捷的", "聰明的", "具有攻擊性的", "微小的", "家養的", "野生的", "草食性的", "肉食性的", "可愛的", "具有攻擊性的", "敏捷的", "美麗的", "專橫的", "坦率的", "肉食性的", "聰明的", "冷酷的", "冷血的", "色彩繽紛的", "令人想擁抱的", "好奇的", "可愛的", "危險的", "致命的", "家養的", "支配的", "精力充沛的", "快速的", "好鬥的", "兇猛的", "猛烈的", "蓬鬆的", "友善的", "毛茸茸的", "模糊的", "暴躁的", "多毛的", "沉重的", "草食性的", "嫉妒的", "巨大的", "懶惰的", "吵鬧的", "討人喜歡的", "有愛心的", "惡意的", "母性的", "刻薄的", "凌亂的", "夜行性的", "吵鬧的", "愛管閒事的", "挑剔的", "愛玩的", "有毒的", "迅速的", "粗糙的", "無禮的", "有鱗的", "矮小的", "害羞的", "黏滑的", "緩慢的", "小的", "聰明的", "有異味的", "柔軟的", "有刺的", "臭的", "強壯的", "固執的", "順從的", "高的", "溫馴的", "頑強的", "有領地意識的", "微小的", "惡毒的", "溫暖的", "野生的"}
+	animals    = [...]string{"土豚", "信天翁", "短吻鱷", "羊駝", "螞蟻", "食蟻獸", "羚羊", "猿", "犰狳", "驢", "狒狒", "獾", "梭魚", "蝙蝠", "熊", "海狸", "蜜蜂", "野牛", "野豬", "水牛", "蝴蝶", "駱駝", "水豚", "馴鹿", "食火雞", "貓", "毛毛蟲", "牛", "羚羊", "獵豹", "雞", "黑猩猩", "龍貓", "紅嘴山鴉", "蛤蜊", "眼鏡蛇", "蟑螂", "鱈魚", "鸕鶿", "郊狼", "螃蟹", "鶴", "鱷魚", "烏鴉", "杓鷸", "鹿", "恐龍", "狗", "狗魚", "海豚", "三趾鴴", "鴿子", "蜻蜓", "鴨子", "儒艮", "黑腹濱鷸", "老鷹", "針鼴", "鰻魚", "大羚羊", "大象", "麋鹿", "鴯鶓", "隼", "雪貂", "雀鳥", "魚", "紅鶴", "蒼蠅", "狐狸", "青蛙", "印度野牛", "瞪羚", "沙鼠", "長頸鹿", "蚋", "角馬", "山羊", "金翅雀", "金魚", "鵝", "大猩猩", "蒼鷹", "蚱蜢", "松雞", "原駝", "海鷗", "倉鼠", "野兔", "鷹", "刺蝟", "蒼鷺", "鯡魚", "河馬", "大黃蜂", "馬", "人類", "蜂鳥", "鬣狗", "山羊", "朱鷺", "胡狼", "美洲豹", "松鴉", "水母", "袋鼠", "翠鳥", "無尾熊", "笑翠鳥", "高棉牛", "捻角羚", "鳳頭麥雞", "雲雀", "狐猴", "豹", "獅子", "駱馬", "龍蝦", "蝗蟲", "懶猴", "蝨子", "琴鳥", "喜鵲", "綠頭鴨", "海牛", "山魈", "螳螂", "貂", "狐獴", "水貂", "鼴鼠", "貓鼬", "猴子", "麋鹿", "蚊子", "老鼠", "騾", "獨角鯨", "蠑螈", "夜鶯", "章魚", "霍加皮", "負鼠", "劍羚", "鴕鳥", "水獺", "貓頭鷹", "牡蠣", "黑豹", "鸚鵡", "鷓鴣", "孔雀", "鵜鶘", "企鵝", "野雞", "豬", "鴿子", "小馬", "豪豬", "海豚", "鵪鶉", "奎利亞", " 魁札爾鳥", "兔子", "浣熊", "秧雞", "綿羊", "老鼠", "烏鴉", "紅鹿", "小熊貓", "馴鹿", "犀牛", "白嘴鴉", "蠑螈", "鮭魚", "沙元", "鷸", "沙丁魚", "蠍子", "海馬", "海豹", "鯊魚", "羊", "鼩鼱", "臭鼬", "蝸牛", "蛇", "麻雀", "蜘蛛", "琵鷺", "魷魚", "松鼠", "八哥", "魟魚", "臭蟲", "鸛", "燕子", "天鵝", "賁", "眼鏡猴", "白蟻", "老虎", "蟾蜍", "鱒魚", "火雞", "烏龜", "毒蛇", "禿鷹", "小袋鼠", "海象", "黃蜂", "黃鼠狼", "鯨魚", "野貓", "狼", "金鋼狼", "袋熊", "啄木鳥", "蠕蟲", "鷦鷯", "犛牛", "斑馬"}
+)
+
+func generateNickname() string {
+	return adjectives[rand.Intn(len(adjectives))] + animals[rand.Intn(len(animals))]
+}
+
+var (
+	userBalances  sync.Map
+	userNicknames sync.Map
+	gameInstance  = NewGame()
 )
 
 func NewGame() *Game {
@@ -82,12 +93,7 @@ func (g *Game) StartBettingPhase() {
 		player.IsActive = false
 	}
 
-	g.Broadcast("phase", map[string]interface{}{
-		"phase":      "betting",
-		"countdown":  g.phaseEndTime.UnixMilli() - time.Now().UnixMilli(),
-		"multiplier": g.multiplier,
-		"multi":      0.0,
-	})
+	g.Broadcast("phase", map[string]interface{}{"phase": "betting", "countdown": g.phaseEndTime.UnixMilli() - time.Now().UnixMilli(), "multiplier": g.multiplier, "multi": 0.0})
 
 	ticker := time.NewTicker(100 * time.Millisecond)
 	go func() {
@@ -123,11 +129,7 @@ func (g *Game) StartCashoutPhase() {
 	randomDuration := 0 + rand.Float64()*9 // 1x ~ 10x
 	g.phaseEndTime = tagTime.Add(time.Duration(randomDuration) * time.Second)
 
-	g.Broadcast("phase", map[string]interface{}{
-		"phase":      "cashout",
-		"countdown":  time.Now().UnixMilli() - tagTime.UnixMilli(),
-		"multiplier": g.multiplier,
-	})
+	g.Broadcast("phase", map[string]interface{}{"phase": "cashout", "countdown": time.Now().UnixMilli() - tagTime.UnixMilli(), "multiplier": g.multiplier})
 
 	// multiplier update
 	ticker := time.NewTicker(100 * time.Millisecond)
@@ -161,11 +163,7 @@ func (g *Game) StartConfiscatePhase() {
 
 	g.phase = ConfiscatePhase
 	g.phaseEndTime = time.Now().Add(PHASE_DURATION_SEC * time.Second)
-	g.Broadcast("phase", map[string]interface{}{
-		"phase":      "confiscate",
-		"countdown":  g.phaseEndTime.UnixMilli() - time.Now().UnixMilli(),
-		"multiplier": g.multiplier,
-	})
+	g.Broadcast("phase", map[string]interface{}{"phase": "confiscate", "countdown": g.phaseEndTime.UnixMilli() - time.Now().UnixMilli(), "multiplier": g.multiplier})
 	g.statistics.multiAcc += g.multiplier
 	g.statistics.maxMulti = math.Max(g.statistics.maxMulti, g.multiplier)
 
@@ -249,13 +247,16 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 			userID = uuid.NewString()
 		}
 
+		nickname, _ := userNicknames.LoadOrStore(userID, generateNickname())
+
 		// create player
 		g.players[conn] = &Player{
 			UserID:   userID,
+			Nickname: nickname.(string),
 			IsActive: false,
 		}
 
-		g.SendLoginConfirmed(conn, userID)
+		g.SendLoginConfirmed(conn, userID, nickname.(string))
 
 		balance, _ := userBalances.LoadOrStore(userID, 100.0)
 		g.SendBalance(conn, balance.(float64))
@@ -326,38 +327,23 @@ func getBalance(userID string) float64 {
 }
 
 func (g *Game) SendBalance(conn *websocket.Conn, balance float64) {
-	conn.WriteJSON(map[string]interface{}{
-		"event": "balance",
-		"data":  map[string]float64{"value": balance},
-	})
+	conn.WriteJSON(map[string]interface{}{"event": "balance", "data": map[string]float64{"value": balance}})
 }
 
 func (g *Game) SendResult(conn *websocket.Conn, profit float64) {
-	conn.WriteJSON(map[string]interface{}{
-		"event": "result",
-		"data":  map[string]float64{"profit": profit},
-	})
+	conn.WriteJSON(map[string]interface{}{"event": "result", "data": map[string]float64{"profit": profit}})
 }
 
 func (g *Game) SendLockMulti(conn *websocket.Conn, multi float64) {
-	conn.WriteJSON(map[string]interface{}{
-		"event": "lock_multi",
-		"data":  map[string]float64{"multi": multi},
-	})
+	conn.WriteJSON(map[string]interface{}{"event": "lock_multi", "data": map[string]float64{"multi": multi}})
 }
 
-func (g *Game) SendLoginConfirmed(conn *websocket.Conn, userId string) {
-	conn.WriteJSON(map[string]interface{}{
-		"event": "login_confirmed",
-		"data":  map[string]string{"id": userId},
-	})
+func (g *Game) SendLoginConfirmed(conn *websocket.Conn, userId string, nickname string) {
+	conn.WriteJSON(map[string]interface{}{"event": "login_confirmed", "data": map[string]string{"id": userId, "name": nickname}})
 }
 
 func (g *Game) Broadcast(event string, data map[string]interface{}) {
-	msg, _ := json.Marshal(map[string]interface{}{
-		"event": event,
-		"data":  data,
-	})
+	msg, _ := json.Marshal(map[string]interface{}{"event": event, "data": data})
 
 	for conn := range g.players {
 		conn.WriteMessage(websocket.TextMessage, msg)

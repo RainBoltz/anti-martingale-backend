@@ -1,4 +1,4 @@
-module main
+module antimartingale
 
 go 1.23.5
 
