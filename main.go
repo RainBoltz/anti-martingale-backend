@@ -127,7 +127,7 @@ func (g *Game) StartCashoutPhase() {
 	g.multiplier = 1.0
 	tagTime := time.Now()
 
-	gameDuration := calculateGameEndTime()
+	gameDuration := time.Duration(20.0 * float64(time.Second)) //calculateGameEndTime()
 	g.phaseEndTime = tagTime.Add(gameDuration)
 
 	g.Broadcast("phase", map[string]interface{}{"phase": "cashout", "countdown": time.Now().UnixMilli() - tagTime.UnixMilli(), "multiplier": g.multiplier})
@@ -138,7 +138,7 @@ func (g *Game) StartCashoutPhase() {
 		for range ticker.C {
 			g.mutex.Lock()
 			if g.phase == CashoutPhase && time.Now().Before(g.phaseEndTime) {
-				g.multiplier += calculateMultiplierGrowth(g.multiplier)
+				g.multiplier += 0.01 //calculateMultiplierGrowth(g.multiplier)
 				g.Broadcast("phase", map[string]interface{}{
 					"phase":      "cashout",
 					"countdown":  time.Now().UnixMilli() - tagTime.UnixMilli(),
@@ -184,7 +184,7 @@ func (g *Game) StartConfiscatePhase() {
 		player.IsActive = false
 	}
 
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(time.Second)
 	go func() {
 		for range ticker.C {
 			g.mutex.Lock()

@@ -11,7 +11,7 @@ Anti-Martingale Mini game backend service, developed in Golang
 ### 啟動伺服器
 
 ```cmd
-$ go run main
+$ go run main.go
 ```
 
 ### API 說明
