@@ -27,7 +27,8 @@ var upgrader = websocket.Upgrader{
 type Game struct {
 	phase           int
 	multiplier      float64
-	players         map[*websocket.Conn]*Player
+	players         map[string]*Player
+	connections     map[*websocket.Conn]string
 	mutex           sync.Mutex
 	phaseTimer      *time.Timer
 	confiscateTimer *time.Timer
@@ -41,6 +42,7 @@ type Player struct {
 	BetAmount   float64
 	LockedMulti float64
 	IsActive    bool
+	Connection  *websocket.Conn
 }
 
 type Stats struct {
@@ -68,7 +70,8 @@ var (
 
 func NewGame() *Game {
 	return &Game{
-		players: make(map[*websocket.Conn]*Player),
+		players:     make(map[string]*Player),
+		connections: make(map[*websocket.Conn]string),
 	}
 }
 
@@ -127,7 +130,7 @@ func (g *Game) StartCashoutPhase() {
 	g.multiplier = 1.0
 	tagTime := time.Now()
 
-	gameDuration := time.Duration(20.0 * float64(time.Second)) //calculateGameEndTime()
+	gameDuration := calculateGameEndTime()
 	g.phaseEndTime = tagTime.Add(gameDuration)
 
 	g.Broadcast("phase", map[string]interface{}{"phase": "cashout", "countdown": time.Now().UnixMilli() - tagTime.UnixMilli(), "multiplier": g.multiplier})
@@ -169,14 +172,18 @@ func (g *Game) StartConfiscatePhase() {
 	g.statistics.maxMulti = math.Max(g.statistics.maxMulti, g.multiplier)
 
 	// settlement
-	for conn, player := range g.players {
+	for _, player := range g.players {
 		if player.IsActive {
 			profit := player.BetAmount * player.LockedMulti
 			balance := getBalance(player.UserID)
 			userBalances.Store(player.UserID, balance+profit)
-			g.SendResult(conn, profit)
-			g.SendBalance(conn, balance+profit)
-			g.SendBetAmount(conn, 0)
+
+			playerID, playerIsConnected := g.connections[player.Connection]
+			if playerIsConnected && player.UserID == playerID {
+				g.SendResult(player.Connection, profit)
+				g.SendBalance(player.Connection, balance+profit)
+				g.SendBetAmount(player.Connection, 0)
+			}
 
 			g.statistics.betAcc += player.BetAmount
 			g.statistics.payoutAcc += profit
@@ -219,7 +226,13 @@ func (g *Game) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
 			g.mutex.Lock()
-			delete(g.players, conn)
+			player, exists := g.players[g.connections[conn]]
+			if exists && !player.IsActive {
+				delete(g.players, g.connections[conn])
+				fmt.Println("player status removed")
+			}
+			delete(g.connections, conn)
+			fmt.Println("player disconnected")
 			g.mutex.Unlock()
 			break
 		}
@@ -235,10 +248,25 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
 
-	player, playerExists := g.players[conn]
+	serverUserID, playerIsOnline := g.connections[conn]
+	player, playerExists := g.players[serverUserID]
 
 	switch data["action"] {
 	case "login":
+		fmt.Println("login")
+		if playerIsOnline && playerExists { // refresh connection
+			fmt.Println("refresh connection")
+			delete(g.connections, conn)
+			g.connections[conn] = player.UserID
+			g.players[player.UserID].Connection = conn
+
+			g.SendLoginConfirmed(conn, player.UserID, player.Nickname)
+
+			balance, _ := userBalances.LoadOrStore(player.UserID, 10000.0)
+			g.SendBalance(conn, balance.(float64))
+			return
+		}
+
 		clientUserID, ok := data["id"].(string)
 		if !ok {
 			return
@@ -247,16 +275,39 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 		userID := clientUserID
 		if clientUserID == "" { // never login before
 			userID = uuid.NewString()
+		} else if _, exists := g.players[userID]; exists { // reconnect
+			fmt.Println("reconnect")
+			g.connections[conn] = userID // update connection
+			g.players[userID].Connection = conn
+
+			g.SendLoginConfirmed(conn, userID, g.players[userID].Nickname)
+
+			balance, _ := userBalances.LoadOrStore(userID, 10000.0)
+			g.SendBalance(conn, balance.(float64))
+
+			if g.phase == BettingPhase && g.players[userID].IsActive { // handle already bet
+				g.SendBetAmount(conn, g.players[userID].BetAmount)
+			}
+
+			if g.phase == CashoutPhase && g.players[userID].LockedMulti != 0 { // handle already locked
+				g.SendLockMulti(conn, g.players[userID].LockedMulti)
+			}
+
+			return
 		}
+
+		fmt.Println("new login")
 
 		nickname, _ := userNicknames.LoadOrStore(userID, generateNickname())
 
 		// create player
-		g.players[conn] = &Player{
-			UserID:   userID,
-			Nickname: nickname.(string),
-			IsActive: false,
+		g.players[userID] = &Player{
+			UserID:     userID,
+			Nickname:   nickname.(string),
+			IsActive:   false,
+			Connection: conn,
 		}
+		g.connections[conn] = userID
 
 		g.SendLoginConfirmed(conn, userID, nickname.(string))
 
@@ -264,13 +315,13 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 		g.SendBalance(conn, balance.(float64))
 
 	case "bet":
-		if g.phase != BettingPhase {
+		if g.phase != BettingPhase || !playerExists {
 			return
 		}
 
 		amount, ok := data["amount"].(float64)
 		balance := getBalance(player.UserID)
-		if !player.IsActive && playerExists {
+		if !player.IsActive {
 			// conditions to ignore initialize
 			if !ok || balance < amount || amount < 1.0 {
 				return
@@ -280,12 +331,10 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 			player.IsActive = true
 		}
 
-		if player.IsActive && playerExists {
-			userBalances.Store(player.UserID, balance-amount)
-			player.BetAmount += amount
-			g.SendBalance(conn, balance-amount)
-			g.SendBetAmount(conn, player.BetAmount)
-		}
+		userBalances.Store(player.UserID, balance-amount)
+		player.BetAmount += amount
+		g.SendBalance(conn, balance-amount)
+		g.SendBetAmount(conn, player.BetAmount)
 
 	case "cashout":
 		if player.IsActive && g.phase == CashoutPhase && playerExists {
@@ -367,7 +416,8 @@ func (g *Game) SendLoginConfirmed(conn *websocket.Conn, userId string, nickname 
 func (g *Game) Broadcast(event string, data map[string]interface{}) {
 	msg, _ := json.Marshal(map[string]interface{}{"event": event, "data": data})
 
-	for conn := range g.players {
+	for _, player := range g.players {
+		conn := player.Connection
 		conn.WriteMessage(websocket.TextMessage, msg)
 	}
 }
@@ -379,7 +429,7 @@ func calculateMultiplierGrowth(currentMulti float64) float64 {
 	accelerator := 1.0 + (currentMulti-1.0)*0.1
 	return baseGrowth * accelerator
 }
-func calculateGameEndTime() time.Duration {
+func calculateGameEndTimeCheat() time.Duration {
 	// 基礎遊戲時間範圍
 	const minDuration = 0.0          // 最短 0 秒
 	const maxDuration = 15.0         // 最長 15 秒
@@ -397,6 +447,17 @@ func calculateGameEndTime() time.Duration {
 	randomFactor := (1.0 - fuzzyRate) + rand.Float64()*2*fuzzyRate
 
 	return time.Duration(duration * randomFactor * float64(time.Second))
+}
+func calculateGameEndTime() time.Duration {
+	if rand.Float64() < 0.7 {
+		// 70% 使用均勻分佈（0~10 秒）
+		return time.Duration(10*rand.Float64()) * time.Second
+	} else {
+		// 30% 使用指數分佈（均值 5 秒，限制在 0~50 秒）
+		exp := rand.ExpFloat64() * 5.0
+		clamped := math.Max(0.0, math.Min(exp, 50.0))
+		return time.Duration(clamped) * time.Second
+	}
 }
 
 func main() {
