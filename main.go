@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -14,26 +16,32 @@ import (
 	"github.com/gorilla/websocket"
 )
 
+// phase enums
 const (
 	BettingPhase = iota
 	CashoutPhase
 	ConfiscatePhase
 )
 
-var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
+// constants
+const (
+	PHASE_DURATION_SEC = 10 * time.Second
+)
 
 type Game struct {
+	mutex           sync.Mutex
 	phase           int
 	multiplier      float64
 	players         map[string]*Player
 	connections     map[*websocket.Conn]string
-	mutex           sync.Mutex
 	phaseTimer      *time.Timer
 	confiscateTimer *time.Timer
 	phaseEndTime    time.Time
 	statistics      Stats
+	// database
+	userBalances     sync.Map
+	userNicknames    sync.Map
+	onlinePlayerList map[string]interface{} // nickname(string) : info(*PlayerInGameInfo)
 }
 
 type Player struct {
@@ -53,6 +61,13 @@ type Stats struct {
 	maxMulti  float64
 }
 
+type PlayerInGameInfo struct {
+	Nickname    string
+	BetAmount   float64
+	LockedMulti float64
+}
+
+// player naming
 var (
 	adjectives = [...]string{"毛茸茸的", "兇猛的", "危險的", "有毒的", "溫馴的", "敏捷的", "聰明的", "具有攻擊性的", "微小的", "家養的", "野生的", "草食性的", "肉食性的", "可愛的", "具有攻擊性的", "敏捷的", "美麗的", "專橫的", "坦率的", "肉食性的", "聰明的", "冷酷的", "冷血的", "色彩繽紛的", "令人想擁抱的", "好奇的", "可愛的", "危險的", "致命的", "家養的", "支配的", "精力充沛的", "快速的", "好鬥的", "兇猛的", "猛烈的", "蓬鬆的", "友善的", "毛茸茸的", "模糊的", "暴躁的", "多毛的", "沉重的", "草食性的", "嫉妒的", "巨大的", "懶惰的", "吵鬧的", "討人喜歡的", "有愛心的", "惡意的", "母性的", "刻薄的", "凌亂的", "夜行性的", "吵鬧的", "愛管閒事的", "挑剔的", "愛玩的", "有毒的", "迅速的", "粗糙的", "無禮的", "有鱗的", "矮小的", "害羞的", "黏滑的", "緩慢的", "小的", "聰明的", "有異味的", "柔軟的", "有刺的", "臭的", "強壯的", "固執的", "順從的", "高的", "溫馴的", "頑強的", "有領地意識的", "微小的", "惡毒的", "溫暖的", "野生的"}
 	animals    = [...]string{"土豚", "信天翁", "短吻鱷", "羊駝", "螞蟻", "食蟻獸", "羚羊", "猿", "犰狳", "驢", "狒狒", "獾", "梭魚", "蝙蝠", "熊", "海狸", "蜜蜂", "野牛", "野豬", "水牛", "蝴蝶", "駱駝", "水豚", "馴鹿", "食火雞", "貓", "毛毛蟲", "牛", "羚羊", "獵豹", "雞", "黑猩猩", "龍貓", "紅嘴山鴉", "蛤蜊", "眼鏡蛇", "蟑螂", "鱈魚", "鸕鶿", "郊狼", "螃蟹", "鶴", "鱷魚", "烏鴉", "杓鷸", "鹿", "恐龍", "狗", "狗魚", "海豚", "三趾鴴", "鴿子", "蜻蜓", "鴨子", "儒艮", "黑腹濱鷸", "老鷹", "針鼴", "鰻魚", "大羚羊", "大象", "麋鹿", "鴯鶓", "隼", "雪貂", "雀鳥", "魚", "紅鶴", "蒼蠅", "狐狸", "青蛙", "印度野牛", "瞪羚", "沙鼠", "長頸鹿", "蚋", "角馬", "山羊", "金翅雀", "金魚", "鵝", "大猩猩", "蒼鷹", "蚱蜢", "松雞", "原駝", "海鷗", "倉鼠", "野兔", "鷹", "刺蝟", "蒼鷺", "鯡魚", "河馬", "大黃蜂", "馬", "人類", "蜂鳥", "鬣狗", "山羊", "朱鷺", "胡狼", "美洲豹", "松鴉", "水母", "袋鼠", "翠鳥", "無尾熊", "笑翠鳥", "高棉牛", "捻角羚", "鳳頭麥雞", "雲雀", "狐猴", "豹", "獅子", "駱馬", "龍蝦", "蝗蟲", "懶猴", "蝨子", "琴鳥", "喜鵲", "綠頭鴨", "海牛", "山魈", "螳螂", "貂", "狐獴", "水貂", "鼴鼠", "貓鼬", "猴子", "麋鹿", "蚊子", "老鼠", "騾", "獨角鯨", "蠑螈", "夜鶯", "章魚", "霍加皮", "負鼠", "劍羚", "鴕鳥", "水獺", "貓頭鷹", "牡蠣", "黑豹", "鸚鵡", "鷓鴣", "孔雀", "鵜鶘", "企鵝", "野雞", "豬", "鴿子", "小馬", "豪豬", "海豚", "鵪鶉", "奎利亞", " 魁札爾鳥", "兔子", "浣熊", "秧雞", "綿羊", "老鼠", "烏鴉", "紅鹿", "小熊貓", "馴鹿", "犀牛", "白嘴鴉", "蠑螈", "鮭魚", "沙元", "鷸", "沙丁魚", "蠍子", "海馬", "海豹", "鯊魚", "羊", "鼩鼱", "臭鼬", "蝸牛", "蛇", "麻雀", "蜘蛛", "琵鷺", "魷魚", "松鼠", "八哥", "魟魚", "臭蟲", "鸛", "燕子", "天鵝", "賁", "眼鏡猴", "白蟻", "老虎", "蟾蜍", "鱒魚", "火雞", "烏龜", "毒蛇", "禿鷹", "小袋鼠", "海象", "黃蜂", "黃鼠狼", "鯨魚", "野貓", "狼", "金鋼狼", "袋熊", "啄木鳥", "蠕蟲", "鷦鷯", "犛牛", "斑馬"}
@@ -62,10 +77,19 @@ func generateNickname() string {
 	return adjectives[rand.Intn(len(adjectives))] + animals[rand.Intn(len(animals))]
 }
 
+// global variables
 var (
-	userBalances  sync.Map
-	userNicknames sync.Map
-	gameInstance  = NewGame()
+	// connection
+	upgrader = websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+	// game
+	gameInstance = NewGame()
+	// provably fair
+	serverSeed       string
+	clientSeed       string
+	timestamp        int64
+	provablyFairHash string
 )
 
 func NewGame() *Game {
@@ -80,14 +104,12 @@ func (g *Game) Run() {
 }
 
 func (g *Game) StartBettingPhase() {
-	const PHASE_DURATION_SEC = 10
-
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
 
 	g.phase = BettingPhase
 	g.multiplier = 0.0
-	g.phaseEndTime = time.Now().Add(PHASE_DURATION_SEC * time.Second)
+	g.phaseEndTime = time.Now().Add(PHASE_DURATION_SEC)
 
 	// reset player status
 	for _, player := range g.players {
@@ -119,7 +141,7 @@ func (g *Game) StartBettingPhase() {
 	}()
 
 	g.statistics.rounds += 1
-	g.phaseTimer = time.AfterFunc(PHASE_DURATION_SEC*time.Second, g.StartCashoutPhase)
+	g.phaseTimer = time.AfterFunc(PHASE_DURATION_SEC, g.StartCashoutPhase)
 }
 
 func (g *Game) StartCashoutPhase() {
@@ -130,7 +152,14 @@ func (g *Game) StartCashoutPhase() {
 	g.multiplier = 1.0
 	tagTime := time.Now()
 
-	gameDuration := calculateGameEndTime()
+	// setup provably fair
+	clientSeed = uuid.New().String()
+	timestamp = tagTime.Unix()
+	provablyFairHash = generateProvablyFairHash(serverSeed, clientSeed, timestamp)
+	g.Broadcast("provably_fair", map[string]interface{}{"client_seed": clientSeed, "timestamp": timestamp, "hash": provablyFairHash})
+
+	// setup games
+	gameDuration := calculateGameDuration()
 	g.phaseEndTime = tagTime.Add(gameDuration)
 
 	g.Broadcast("phase", map[string]interface{}{"phase": "cashout", "countdown": time.Now().UnixMilli() - tagTime.UnixMilli(), "multiplier": g.multiplier})
@@ -160,24 +189,26 @@ func (g *Game) StartCashoutPhase() {
 }
 
 func (g *Game) StartConfiscatePhase() {
-	const PHASE_DURATION_SEC = 10
-
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
 
 	g.phase = ConfiscatePhase
-	g.phaseEndTime = time.Now().Add(PHASE_DURATION_SEC * time.Second)
+	g.phaseEndTime = time.Now().Add(PHASE_DURATION_SEC)
 	g.Broadcast("phase", map[string]interface{}{"phase": "confiscate", "countdown": g.phaseEndTime.UnixMilli() - time.Now().UnixMilli(), "multiplier": g.multiplier})
 	g.statistics.multiAcc += g.multiplier
 	g.statistics.maxMulti = math.Max(g.statistics.maxMulti, g.multiplier)
 
 	// settlement
+	var winnerNickname string = ""
+	var winnerPayout float64 = 0.0
 	for _, player := range g.players {
 		if player.IsActive {
+			// calculate profit
 			profit := player.BetAmount * player.LockedMulti
-			balance := getBalance(player.UserID)
-			userBalances.Store(player.UserID, balance+profit)
+			balance := g.getBalance(player.UserID)
+			g.userBalances.Store(player.UserID, balance+profit)
 
+			// send results
 			playerID, playerIsConnected := g.connections[player.Connection]
 			if playerIsConnected && player.UserID == playerID {
 				g.SendResult(player.Connection, profit)
@@ -185,11 +216,30 @@ func (g *Game) StartConfiscatePhase() {
 				g.SendBetAmount(player.Connection, 0)
 			}
 
+			// update statistics
 			g.statistics.betAcc += player.BetAmount
 			g.statistics.payoutAcc += profit
+
+			// find the winner
+			if profit > winnerPayout {
+				winnerNickname = player.Nickname
+				winnerPayout = profit
+			}
+
+			// reset player status
+			playerInGameInfoPointer, ok := g.onlinePlayerList[player.Nickname].(*PlayerInGameInfo)
+			if ok {
+				playerInGameInfoPointer.LockedMulti = 0.0
+				playerInGameInfoPointer.BetAmount = 0.0
+				g.Broadcast("online_player_list", g.onlinePlayerList)
+			} else {
+				delete(g.onlinePlayerList, player.Nickname)
+			}
 		}
 		player.IsActive = false
 	}
+
+	g.Broadcast("winner", map[string]interface{}{"nickname": winnerNickname, "payout": winnerPayout})
 
 	ticker := time.NewTicker(time.Second)
 	go func() {
@@ -210,11 +260,10 @@ func (g *Game) StartConfiscatePhase() {
 		}
 	}()
 
-	time.AfterFunc(PHASE_DURATION_SEC*time.Second, g.StartBettingPhase)
+	time.AfterFunc(PHASE_DURATION_SEC, g.StartBettingPhase)
 }
 
 func (g *Game) HandleConnection(w http.ResponseWriter, r *http.Request) {
-
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, "WebSocket upgrade failed", http.StatusBadRequest)
@@ -227,11 +276,17 @@ func (g *Game) HandleConnection(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			g.mutex.Lock()
 			player, exists := g.players[g.connections[conn]]
+
+			delete(g.onlinePlayerList, player.Nickname) // remove player from online player list
+			g.Broadcast("online_player_list", g.onlinePlayerList)
+
 			if exists && !player.IsActive {
 				delete(g.players, g.connections[conn])
 				fmt.Println("player status removed")
 			}
-			delete(g.connections, conn)
+			delete(g.connections, conn) // remove connection record
+			conn.Close()                // close the connection
+
 			fmt.Println("player disconnected")
 			g.mutex.Unlock()
 			break
@@ -262,7 +317,7 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 
 			g.SendLoginConfirmed(conn, player.UserID, player.Nickname)
 
-			balance, _ := userBalances.LoadOrStore(player.UserID, 10000.0)
+			balance, _ := g.userBalances.LoadOrStore(player.UserID, 10000.0)
 			g.SendBalance(conn, balance.(float64))
 			return
 		}
@@ -282,7 +337,7 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 
 			g.SendLoginConfirmed(conn, userID, g.players[userID].Nickname)
 
-			balance, _ := userBalances.LoadOrStore(userID, 10000.0)
+			balance, _ := g.userBalances.LoadOrStore(userID, 10000.0)
 			g.SendBalance(conn, balance.(float64))
 
 			if g.phase == BettingPhase && g.players[userID].IsActive { // handle already bet
@@ -298,7 +353,7 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 
 		fmt.Println("new login")
 
-		nickname, _ := userNicknames.LoadOrStore(userID, generateNickname())
+		nickname, _ := g.userNicknames.LoadOrStore(userID, generateNickname())
 
 		// create player
 		g.players[userID] = &Player{
@@ -311,8 +366,11 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 
 		g.SendLoginConfirmed(conn, userID, nickname.(string))
 
-		balance, _ := userBalances.LoadOrStore(userID, 10000.0)
+		balance, _ := g.userBalances.LoadOrStore(userID, 10000.0)
 		g.SendBalance(conn, balance.(float64))
+
+		g.onlinePlayerList[nickname.(string)] = &PlayerInGameInfo{Nickname: nickname.(string), BetAmount: 0.0, LockedMulti: 0.0} // add new player to online player list
+		g.Broadcast("online_player_list", g.onlinePlayerList)
 
 	case "bet":
 		if g.phase != BettingPhase || !playerExists {
@@ -320,7 +378,7 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 		}
 
 		amount, ok := data["amount"].(float64)
-		balance := getBalance(player.UserID)
+		balance := g.getBalance(player.UserID)
 		if !player.IsActive {
 			// conditions to ignore initialize
 			if !ok || balance < amount || amount < 1.0 {
@@ -331,10 +389,16 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 			player.IsActive = true
 		}
 
-		userBalances.Store(player.UserID, balance-amount)
+		g.userBalances.Store(player.UserID, balance-amount)
 		player.BetAmount += amount
 		g.SendBalance(conn, balance-amount)
 		g.SendBetAmount(conn, player.BetAmount)
+
+		playerInGameInfoPointer, ok := g.onlinePlayerList[player.Nickname].(*PlayerInGameInfo)
+		if ok {
+			playerInGameInfoPointer.BetAmount += player.BetAmount
+			g.Broadcast("online_player_list", g.onlinePlayerList)
+		}
 
 	case "cashout":
 		if player.IsActive && g.phase == CashoutPhase && playerExists {
@@ -342,6 +406,12 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 				player.LockedMulti = g.multiplier
 				g.SendLockMulti(conn, player.LockedMulti)
 			}
+		}
+
+		playerInGameInfoPointer, ok := g.onlinePlayerList[player.Nickname].(*PlayerInGameInfo)
+		if ok {
+			playerInGameInfoPointer.LockedMulti = player.LockedMulti
+			g.Broadcast("online_player_list", g.onlinePlayerList)
 		}
 	}
 }
@@ -388,8 +458,8 @@ func (g *Game) HandleStatsRequest(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprint(w, string(output))
 }
 
-func getBalance(userID string) float64 {
-	balance, _ := userBalances.Load(userID)
+func (g *Game) getBalance(userID string) float64 {
+	balance, _ := g.userBalances.Load(userID)
 	return balance.(float64)
 }
 
@@ -423,41 +493,41 @@ func (g *Game) Broadcast(event string, data map[string]interface{}) {
 }
 
 // earning optimization
-func calculateMultiplierGrowth(currentMulti float64) float64 {
-	// 倍率越高，增長速度越快
-	baseGrowth := 0.01
-	accelerator := 1.0 + (currentMulti-1.0)*0.1
-	return baseGrowth * accelerator
-}
-func calculateGameEndTimeCheat() time.Duration {
-	// 基礎遊戲時間範圍
-	const minDuration = 0.0          // 最短 0 秒
-	const maxDuration = 15.0         // 最長 15 秒
-	const targetHouseEdgeRate = 0.05 // 目標賠率 5%
-	const fuzzyRate = 0.25           // 加入 25% 隨機變化
-
-	// 根據歷史賠率動態調整
-	houseEdge := gameInstance.statistics.betAcc - gameInstance.statistics.payoutAcc
-	targetEdge := gameInstance.statistics.betAcc * targetHouseEdgeRate
-
-	// 如果賠率太高，傾向於更快結束遊戲
-	adjustment := math.Max(0, (targetEdge-houseEdge)/targetEdge)
-
-	duration := maxDuration - (maxDuration-minDuration)*adjustment
-	randomFactor := (1.0 - fuzzyRate) + rand.Float64()*2*fuzzyRate
-
-	return time.Duration(duration * randomFactor * float64(time.Second))
-}
-func calculateGameEndTime() time.Duration {
-	if rand.Float64() < 0.7 {
-		// 70% 使用均勻分佈（0~10 秒）
-		return time.Duration(10*rand.Float64()) * time.Second
+func calculateGameDuration() time.Duration {
+	var randomResult float64
+	selectProbability := rand.Float64()
+	if selectProbability < 0.1 {
+		// 10% immediately end
+		randomResult = 0.0 + generateAlmostZeroWithLongMantissa()
+	} else if selectProbability < 0.8 {
+		// 80% (1 + [0,15])x
+		randomResult = 15*rand.Float64() + generateAlmostZeroWithLongMantissa()
 	} else {
-		// 30% 使用指數分佈（均值 5 秒，限制在 0~50 秒）
-		exp := rand.ExpFloat64() * 5.0
-		clamped := math.Max(0.0, math.Min(exp, 50.0))
-		return time.Duration(clamped) * time.Second
+		// 10% super time
+		randomResult = rand.ExpFloat64()*30 + generateAlmostZeroWithLongMantissa()
 	}
+	serverSeed = fmt.Sprintf("%.20f", randomResult)
+
+	return time.Duration(randomResult) * time.Second
+}
+
+// provably fair
+func generateProvablyFairHash(serverSeed, clientSeed string, timestamp int64) string {
+	// Concatenate all inputs
+	input := serverSeed + clientSeed + fmt.Sprintf("%d", timestamp)
+
+	// Generate a SHA256 hash
+	hash := sha256.New()
+	hash.Write([]byte(input))
+	hashBytes := hash.Sum(nil)
+
+	// Return the hex string of the hash
+	return hex.EncodeToString(hashBytes)
+}
+func generateAlmostZeroWithLongMantissa() float64 {
+	base := 1e-9
+	randomFraction := rand.Float64() + 0.1
+	return base * randomFraction
 }
 
 func main() {
@@ -475,7 +545,7 @@ func main() {
 	mux.HandleFunc("/game", gameInstance.HandleConnection)
 	mux.HandleFunc("/stats", gameInstance.HandleStatsRequest)
 
-	// // Start the server
+	// Start the server
 	fmt.Println("Server starting on :8080")
 	fmt.Println("(see stats at http://localhost:8080/stats)")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
