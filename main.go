@@ -94,8 +94,9 @@ var (
 
 func NewGame() *Game {
 	return &Game{
-		players:     make(map[string]*Player),
-		connections: make(map[*websocket.Conn]string),
+		players:          make(map[string]*Player),
+		connections:      make(map[*websocket.Conn]string),
+		onlinePlayerList: make(map[string]interface{}),
 	}
 }
 
@@ -274,18 +275,32 @@ func (g *Game) HandleConnection(w http.ResponseWriter, r *http.Request) {
 	for {
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
+			fmt.Println("gogo")
 			g.mutex.Lock()
-			player, exists := g.players[g.connections[conn]]
+			userID, hasUserID := g.connections[conn]
+			if !hasUserID { // player is not logged in
+				fmt.Println("well ok")
+				conn.Close()
+				g.mutex.Unlock()
+				break
+			}
 
-			delete(g.onlinePlayerList, player.Nickname) // remove player from online player list
-			g.Broadcast("online_player_list", g.onlinePlayerList)
+			player, exists := g.players[userID]
+			if exists {
+				fmt.Println("player online status removed")
+				if _, isOnline := g.onlinePlayerList[player.Nickname]; isOnline {
+					delete(g.onlinePlayerList, player.Nickname) // remove player from online player list
+				}
+			}
 
 			if exists && !player.IsActive {
-				delete(g.players, g.connections[conn])
+				delete(g.players, userID)
 				fmt.Println("player status removed")
 			}
 			delete(g.connections, conn) // remove connection record
 			conn.Close()                // close the connection
+
+			g.Broadcast("online_player_list", g.onlinePlayerList) // update online player list
 
 			fmt.Println("player disconnected")
 			g.mutex.Unlock()
@@ -496,14 +511,14 @@ func (g *Game) Broadcast(event string, data map[string]interface{}) {
 func calculateGameDuration() time.Duration {
 	var randomResult float64
 	selectProbability := rand.Float64()
-	if selectProbability < 0.1 {
-		// 10% immediately end
+	if selectProbability < 0.05 {
+		// 5% immediately end
 		randomResult = 0.0 + generateAlmostZeroWithLongMantissa()
-	} else if selectProbability < 0.8 {
-		// 80% (1 + [0,15])x
+	} else if selectProbability < 0.7 {
+		// 70% (1 + [0,15])x
 		randomResult = 15*rand.Float64() + generateAlmostZeroWithLongMantissa()
 	} else {
-		// 10% super time
+		// 25% super time
 		randomResult = rand.ExpFloat64()*30 + generateAlmostZeroWithLongMantissa()
 	}
 	serverSeed = fmt.Sprintf("%.20f", randomResult)
