@@ -405,7 +405,7 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 		g.SendBalance(conn, balance-amount)
 		g.SendBetAmount(conn, player.BetAmount)
 
-		g.onlinePlayerList[player.Nickname].BetAmount += player.BetAmount
+		g.onlinePlayerList[player.Nickname].BetAmount += amount
 		g.Broadcast("online_player_list", map[string]interface{}{"list": g.onlinePlayerList})
 
 	case "cashout":
