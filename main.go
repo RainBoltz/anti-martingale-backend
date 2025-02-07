@@ -41,7 +41,7 @@ type Game struct {
 	// database
 	userBalances     sync.Map
 	userNicknames    sync.Map
-	onlinePlayerList map[string]interface{} // nickname(string) : info(*PlayerInGameInfo)
+	onlinePlayerList map[string]*PlayerInGameInfo
 }
 
 type Player struct {
@@ -96,7 +96,7 @@ func NewGame() *Game {
 	return &Game{
 		players:          make(map[string]*Player),
 		connections:      make(map[*websocket.Conn]string),
-		onlinePlayerList: make(map[string]interface{}),
+		onlinePlayerList: make(map[string]*PlayerInGameInfo),
 	}
 }
 
@@ -107,6 +107,8 @@ func (g *Game) Run() {
 func (g *Game) StartBettingPhase() {
 	g.mutex.Lock()
 	defer g.mutex.Unlock()
+
+	g.Broadcast("online_player_list", map[string]interface{}{"list": g.onlinePlayerList})
 
 	g.phase = BettingPhase
 	g.multiplier = 0.0
@@ -228,14 +230,8 @@ func (g *Game) StartConfiscatePhase() {
 			}
 
 			// reset player status
-			playerInGameInfoPointer, ok := g.onlinePlayerList[player.Nickname].(*PlayerInGameInfo)
-			if ok {
-				playerInGameInfoPointer.LockedMulti = 0.0
-				playerInGameInfoPointer.BetAmount = 0.0
-				g.Broadcast("online_player_list", g.onlinePlayerList)
-			} else {
-				delete(g.onlinePlayerList, player.Nickname)
-			}
+			g.onlinePlayerList[player.Nickname].LockedMulti = 0.0
+			g.onlinePlayerList[player.Nickname].BetAmount = 0.0
 		}
 		player.IsActive = false
 	}
@@ -300,7 +296,7 @@ func (g *Game) HandleConnection(w http.ResponseWriter, r *http.Request) {
 			delete(g.connections, conn) // remove connection record
 			conn.Close()                // close the connection
 
-			g.Broadcast("online_player_list", g.onlinePlayerList) // update online player list
+			g.Broadcast("online_player_list", map[string]interface{}{"list": g.onlinePlayerList}) // update online player list
 
 			fmt.Println("player disconnected")
 			g.mutex.Unlock()
@@ -385,7 +381,7 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 		g.SendBalance(conn, balance.(float64))
 
 		g.onlinePlayerList[nickname.(string)] = &PlayerInGameInfo{Nickname: nickname.(string), BetAmount: 0.0, LockedMulti: 0.0} // add new player to online player list
-		g.Broadcast("online_player_list", g.onlinePlayerList)
+		g.Broadcast("online_player_list", map[string]interface{}{"list": g.onlinePlayerList})
 
 	case "bet":
 		if g.phase != BettingPhase || !playerExists {
@@ -409,11 +405,8 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 		g.SendBalance(conn, balance-amount)
 		g.SendBetAmount(conn, player.BetAmount)
 
-		playerInGameInfoPointer, ok := g.onlinePlayerList[player.Nickname].(*PlayerInGameInfo)
-		if ok {
-			playerInGameInfoPointer.BetAmount += player.BetAmount
-			g.Broadcast("online_player_list", g.onlinePlayerList)
-		}
+		g.onlinePlayerList[player.Nickname].BetAmount += player.BetAmount
+		g.Broadcast("online_player_list", map[string]interface{}{"list": g.onlinePlayerList})
 
 	case "cashout":
 		if player.IsActive && g.phase == CashoutPhase && playerExists {
@@ -423,11 +416,9 @@ func (g *Game) HandleMessage(conn *websocket.Conn, data map[string]interface{}) 
 			}
 		}
 
-		playerInGameInfoPointer, ok := g.onlinePlayerList[player.Nickname].(*PlayerInGameInfo)
-		if ok {
-			playerInGameInfoPointer.LockedMulti = player.LockedMulti
-			g.Broadcast("online_player_list", g.onlinePlayerList)
-		}
+		g.onlinePlayerList[player.Nickname].LockedMulti = player.LockedMulti
+		g.Broadcast("online_player_list", map[string]interface{}{"list": g.onlinePlayerList})
+
 	}
 }
 
@@ -511,14 +502,20 @@ func (g *Game) Broadcast(event string, data map[string]interface{}) {
 func calculateGameDuration() time.Duration {
 	var randomResult float64
 	selectProbability := rand.Float64()
-	if selectProbability < 0.05 {
-		// 5% immediately end
+	if selectProbability < 0.15 {
+		// 15% immediately end
 		randomResult = 0.0 + generateAlmostZeroWithLongMantissa()
-	} else if selectProbability < 0.7 {
-		// 70% (1 + [0,15])x
-		randomResult = 15*rand.Float64() + generateAlmostZeroWithLongMantissa()
+	} else if selectProbability < 0.8 {
+		// 80% here...
+		if rand.Float64() < 0.3 {
+			// 30% (1 + [0.0,1.5])x
+			randomResult = 15*rand.Float64() + generateAlmostZeroWithLongMantissa()
+		} else {
+			// 70% (1 + [0.0,0.5])x
+			randomResult = 5*rand.Float64() + generateAlmostZeroWithLongMantissa()
+		}
 	} else {
-		// 25% super time
+		// 5% super time
 		randomResult = rand.ExpFloat64()*30 + generateAlmostZeroWithLongMantissa()
 	}
 	serverSeed = fmt.Sprintf("%.20f", randomResult)
