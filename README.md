@@ -6,12 +6,50 @@ Anti-Martingale Mini game backend service, developed in Golang
 
 輕鬆小品，單人遊戲，一局不到 1 分鐘，遊戲規則簡單好懂，收益也是純純的乘法非常好算，跟朋友一起挑戰爆擊賺大錢，刺激有趣。
 
+## Project Structure
+
+This project follows Go best practices with a clean architecture:
+
+```
+anti-martingale-backend/
+├── cmd/server/         # Application entry point
+├── internal/           # Private application code
+│   ├── config/        # Configuration and constants
+│   ├── model/         # Data models
+│   ├── game/          # Core game logic
+│   ├── handler/       # HTTP/WebSocket handlers
+│   └── util/          # Utility functions
+└── bin/               # Build output
+```
+
+For detailed refactoring documentation, see [README_REFACTORING.md](README_REFACTORING.md).
+
 ## How To
 
 ### 啟動伺服器
 
-```cmd
-$ go run main.go
+**使用 Makefile (推薦):**
+```bash
+# 建置
+make build
+
+# 執行
+make run
+
+# 清理
+make clean
+```
+
+**使用 Go 指令:**
+```bash
+# 建置
+go build -o bin/server ./cmd/server
+
+# 執行
+go run ./cmd/server
+
+# 或執行已建置的檔案
+./bin/server
 ```
 
 ### API 說明
