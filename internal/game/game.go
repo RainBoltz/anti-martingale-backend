@@ -1,6 +1,7 @@
 package game
 
 import (
+	"log"
 	"sync"
 	"time"
 
@@ -9,6 +10,16 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+// UserRepository defines the interface for user data operations
+type UserRepository interface {
+	GetBalance(userID string) (float64, error)
+	UpdateBalance(userID string, newBalance float64) error
+	GetNickname(userID string) (string, error)
+	CreateUser(userID, nickname string, balance float64) error
+	UserExists(userID string) (bool, error)
+	GetOrCreateUser(userID, nickname string, defaultBalance float64) (balance float64, finalNickname string, err error)
+}
 
 // Game manages the game state and players
 type Game struct {
@@ -21,9 +32,8 @@ type Game struct {
 	confiscateTimer  *time.Timer
 	phaseEndTime     time.Time
 	statistics       model.Stats
-	userBalances     sync.Map
-	userNicknames    sync.Map
 	onlinePlayerList map[string]*model.PlayerInGameInfo
+	userRepo         UserRepository
 
 	// Provably fair fields
 	serverSeed       string
@@ -33,11 +43,12 @@ type Game struct {
 }
 
 // New creates and initializes a new Game instance
-func New() *Game {
+func New(userRepo UserRepository) *Game {
 	return &Game{
 		players:          make(map[string]*model.Player),
 		connections:      make(map[*websocket.Conn]string),
 		onlinePlayerList: make(map[string]*model.PlayerInGameInfo),
+		userRepo:         userRepo,
 	}
 }
 
@@ -46,10 +57,19 @@ func (g *Game) Run() {
 	g.StartBettingPhase()
 }
 
-// GetBalance returns the balance for a given user ID
+// getBalance returns the balance for a given user ID
 func (g *Game) getBalance(userID string) float64 {
-	balance, _ := g.userBalances.Load(userID)
-	return balance.(float64)
+	balance, err := g.userRepo.GetBalance(userID)
+	if err != nil {
+		log.Printf("Error getting balance for user %s: %v", userID, err)
+		return 0
+	}
+	return balance
+}
+
+// updateBalance updates the balance for a given user ID
+func (g *Game) updateBalance(userID string, newBalance float64) error {
+	return g.userRepo.UpdateBalance(userID, newBalance)
 }
 
 // GetStatistics returns the current game statistics

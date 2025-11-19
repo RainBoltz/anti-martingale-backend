@@ -1,6 +1,7 @@
 package game
 
 import (
+	"log"
 	"math"
 	"time"
 
@@ -146,13 +147,18 @@ func (g *Game) StartConfiscatePhase() {
 			// Calculate profit
 			profit := player.BetAmount * player.LockedMulti
 			balance := g.getBalance(player.UserID)
-			g.userBalances.Store(player.UserID, balance+profit)
+			newBalance := balance + profit
+
+			// Update balance in database
+			if err := g.updateBalance(player.UserID, newBalance); err != nil {
+				log.Printf("Error updating balance for user %s: %v", player.UserID, err)
+			}
 
 			// Send results to connected player
 			playerID, playerIsConnected := g.connections[player.Connection]
 			if playerIsConnected && player.UserID == playerID {
 				g.sendResult(player.Connection, profit)
-				g.sendBalance(player.Connection, balance+profit)
+				g.sendBalance(player.Connection, newBalance)
 				g.sendBetAmount(player.Connection, 0)
 			}
 

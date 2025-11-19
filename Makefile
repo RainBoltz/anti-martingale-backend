@@ -1,4 +1,4 @@
-.PHONY: build run clean test
+.PHONY: build run clean test docker-build docker-up docker-down docker-logs
 
 # Build the application
 build:
@@ -42,3 +42,29 @@ deps:
 dev:
 	@echo "Starting in development mode..."
 	@go run ./cmd/server
+
+# Docker commands
+docker-build:
+	@echo "Building Docker image..."
+	@docker-compose build
+
+docker-up:
+	@echo "Starting Docker containers..."
+	@docker-compose up -d
+	@echo "Services started. Access the application at http://localhost:8080"
+
+docker-down:
+	@echo "Stopping Docker containers..."
+	@docker-compose down
+
+docker-logs:
+	@echo "Following logs..."
+	@docker-compose logs -f app
+
+docker-restart:
+	@echo "Restarting Docker containers..."
+	@docker-compose restart
+
+docker-clean:
+	@echo "Stopping and removing containers, volumes..."
+	@docker-compose down -v

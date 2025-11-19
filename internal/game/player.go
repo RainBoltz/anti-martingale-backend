@@ -96,8 +96,8 @@ func (g *Game) handleLogin(conn *websocket.Conn, data map[string]interface{}, pl
 		g.players[player.UserID].Connection = conn
 
 		g.sendLoginConfirmed(conn, player.UserID, player.Nickname)
-		balance, _ := g.userBalances.LoadOrStore(player.UserID, config.DefaultBalance)
-		g.sendBalance(conn, balance.(float64))
+		balance := g.getBalance(player.UserID)
+		g.sendBalance(conn, balance)
 		return
 	}
 
@@ -114,8 +114,8 @@ func (g *Game) handleLogin(conn *websocket.Conn, data map[string]interface{}, pl
 			existingPlayer.Connection = conn
 
 			g.sendLoginConfirmed(conn, clientUserID, existingPlayer.Nickname)
-			balance, _ := g.userBalances.LoadOrStore(clientUserID, config.DefaultBalance)
-			g.sendBalance(conn, balance.(float64))
+			balance := g.getBalance(clientUserID)
+			g.sendBalance(conn, balance)
 
 			// Restore betting state if in betting phase
 			if g.phase == config.BettingPhase && existingPlayer.IsActive {
@@ -138,23 +138,28 @@ func (g *Game) handleLogin(conn *websocket.Conn, data map[string]interface{}, pl
 		userID = uuid.NewString()
 	}
 
-	nickname, _ := g.userNicknames.LoadOrStore(userID, util.GenerateNickname())
+	// Get or create user in database
+	nickname := util.GenerateNickname()
+	balance, finalNickname, err := g.userRepo.GetOrCreateUser(userID, nickname, config.DefaultBalance)
+	if err != nil {
+		log.Printf("Error getting or creating user: %v", err)
+		return
+	}
 
-	// Create new player
+	// Create new player in memory
 	g.players[userID] = &model.Player{
 		UserID:     userID,
-		Nickname:   nickname.(string),
+		Nickname:   finalNickname,
 		IsActive:   false,
 		Connection: conn,
 	}
 	g.connections[conn] = userID
 
-	g.sendLoginConfirmed(conn, userID, nickname.(string))
-	balance, _ := g.userBalances.LoadOrStore(userID, config.DefaultBalance)
-	g.sendBalance(conn, balance.(float64))
+	g.sendLoginConfirmed(conn, userID, finalNickname)
+	g.sendBalance(conn, balance)
 
-	g.onlinePlayerList[nickname.(string)] = &model.PlayerInGameInfo{
-		Nickname:    nickname.(string),
+	g.onlinePlayerList[finalNickname] = &model.PlayerInGameInfo{
+		Nickname:    finalNickname,
 		BetAmount:   0.0,
 		LockedMulti: 0.0,
 	}
@@ -181,9 +186,14 @@ func (g *Game) handleBet(conn *websocket.Conn, data map[string]interface{}, play
 	}
 
 	// Process bet
-	g.userBalances.Store(player.UserID, balance-amount)
+	newBalance := balance - amount
+	if err := g.updateBalance(player.UserID, newBalance); err != nil {
+		log.Printf("Error updating balance for bet: %v", err)
+		return
+	}
+
 	player.BetAmount += amount
-	g.sendBalance(conn, balance-amount)
+	g.sendBalance(conn, newBalance)
 	g.sendBetAmount(conn, player.BetAmount)
 
 	// Update online player list

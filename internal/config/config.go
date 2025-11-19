@@ -1,6 +1,10 @@
 package config
 
-import "time"
+import (
+	"os"
+	"strconv"
+	"time"
+)
 
 // Phase represents the different game phases
 type Phase int
@@ -49,3 +53,51 @@ const (
 	// ProbabilityShortGame is the chance of short game within normal range (30%)
 	ProbabilityShortGame = 0.3
 )
+
+// Environment variable helpers
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	if value := os.Getenv(key); value != "" {
+		if intVal, err := strconv.Atoi(value); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
+}
+
+// GetDatabaseConfig returns database configuration from environment variables
+func GetDatabaseConfig() struct {
+	Host     string
+	Port     int
+	User     string
+	Password string
+	DBName   string
+	SSLMode  string
+} {
+	return struct {
+		Host     string
+		Port     int
+		User     string
+		Password string
+		DBName   string
+		SSLMode  string
+	}{
+		Host:     getEnv("DB_HOST", "localhost"),
+		Port:     getEnvInt("DB_PORT", 5432),
+		User:     getEnv("DB_USER", "postgres"),
+		Password: getEnv("DB_PASSWORD", "postgres"),
+		DBName:   getEnv("DB_NAME", "antimartingale"),
+		SSLMode:  getEnv("DB_SSLMODE", "disable"),
+	}
+}
+
+// GetServerPort returns the server port from environment or default
+func GetServerPort() string {
+	return getEnv("SERVER_PORT", ":8080")
+}
