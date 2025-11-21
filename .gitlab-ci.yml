@@ -1,0 +1,111 @@
+stages:
+  - test
+  - build
+  - deploy
+
+variables:
+  GO_VERSION: "1.23"
+  POSTGRES_DB: antimartingale_test
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
+  POSTGRES_HOST_AUTH_METHOD: trust
+
+# Test stage
+test:
+  stage: test
+  image: golang:1.23-alpine
+
+  services:
+    - postgres:16-alpine
+
+  variables:
+    DB_HOST: postgres
+    DB_PORT: "5432"
+    DB_USER: postgres
+    DB_PASSWORD: postgres
+    DB_NAME: antimartingale_test
+    DB_SSLMODE: disable
+
+  before_script:
+    - apk add --no-cache make git
+    - make deps
+
+  script:
+    - make ci-lint
+    - make ci-test
+
+  artifacts:
+    reports:
+      coverage_report:
+        coverage_format: cobertura
+        path: coverage.out
+    paths:
+      - coverage.out
+      - coverage.html
+    expire_in: 30 days
+
+  coverage: '/total:\s+\(statements\)\s+(\d+\.\d+)%/'
+
+# Build stage
+build:
+  stage: build
+  image: golang:1.23-alpine
+
+  before_script:
+    - apk add --no-cache make git
+
+  script:
+    - make ci-build
+
+  artifacts:
+    paths:
+      - bin/server
+    expire_in: 7 days
+
+  only:
+    - main
+    - develop
+
+# Docker build stage
+docker-build:
+  stage: build
+  image: docker:24-alpine
+
+  services:
+    - docker:24-dind
+
+  before_script:
+    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+
+  script:
+    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA .
+    - docker build -t $CI_REGISTRY_IMAGE:latest .
+    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+    - docker push $CI_REGISTRY_IMAGE:latest
+
+  only:
+    - main
+
+# Deploy to production
+deploy-production:
+  stage: deploy
+  image: alpine:latest
+
+  before_script:
+    - apk add --no-cache openssh-client
+
+  script:
+    - echo "Deploying to production server..."
+    - echo "This is a placeholder for deployment commands"
+    # Add your deployment commands here
+    # Example:
+    # - ssh user@server "cd /app && docker-compose pull && docker-compose up -d"
+
+  environment:
+    name: production
+    url: https://your-production-url.com
+
+  only:
+    - main
+
+  when: manual

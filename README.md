@@ -123,6 +123,84 @@ go run ./cmd/server
 | DB_SSLMODE | disable | SSL 模式 |
 | SERVER_PORT | :8080 | 伺服器埠號 |
 
+## CI/CD Integration
+
+The project includes comprehensive CI/CD support for automated testing, building, and deployment.
+
+### Makefile Targets
+
+```bash
+# View all available commands
+make help
+
+# CI/CD targets
+make ci                 # Run complete CI pipeline (lint + test + build)
+make ci-test            # Run tests with coverage
+make ci-lint            # Run linters and format checks
+make ci-build           # Build optimized binary
+make coverage           # Generate HTML coverage report
+make check              # Run pre-commit checks
+
+# Deployment targets
+make deploy-docker      # Deploy with Docker Compose
+make deploy-production  # Build production binary for Linux
+```
+
+### GitHub Actions
+
+The project includes a complete CI/CD pipeline in `.github/workflows/ci.yml`:
+
+- **Automated Testing**: Runs on every push and pull request
+- **Code Coverage**: Automatically uploads to Codecov
+- **Docker Build**: Builds and pushes Docker images on main branch
+- **Deployment**: Manual deployment trigger for production
+
+**Setup:**
+1. Add repository secrets in GitHub Settings:
+   - `DOCKER_USERNAME`: Your Docker Hub username
+   - `DOCKER_PASSWORD`: Your Docker Hub password/token
+
+### GitLab CI/CD
+
+Alternative GitLab CI configuration in `.gitlab-ci.yml`:
+
+- **Test Stage**: Runs tests with PostgreSQL service
+- **Build Stage**: Builds binary and Docker image
+- **Deploy Stage**: Manual production deployment
+
+### Cloud Service Integration
+
+The Makefile serves as the primary entry point for all cloud CI/CD services:
+
+**Jenkins:**
+```groovy
+stage('Build') {
+    steps {
+        sh 'make ci'
+    }
+}
+```
+
+**CircleCI:**
+```yaml
+- run: make ci
+```
+
+**Travis CI:**
+```yaml
+script:
+  - make ci
+```
+
+**AWS CodeBuild:**
+```yaml
+build:
+  commands:
+    - make ci
+```
+
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
+
 ### API 說明
 
 - `/game`: websocket 接口，提供前端遊戲連線

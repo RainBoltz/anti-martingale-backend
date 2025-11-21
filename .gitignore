@@ -29,3 +29,7 @@ bin/
 
 # Backup files
 *.old
+
+# Coverage reports
+coverage.html
+coverage.out
