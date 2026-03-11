@@ -6,13 +6,200 @@ Anti-Martingale Mini game backend service, developed in Golang
 
 輕鬆小品，單人遊戲，一局不到 1 分鐘，遊戲規則簡單好懂，收益也是純純的乘法非常好算，跟朋友一起挑戰爆擊賺大錢，刺激有趣。
 
+## Project Structure
+
+This project follows Go best practices with a clean architecture:
+
+```
+anti-martingale-backend/
+├── cmd/server/         # Application entry point
+├── internal/           # Private application code
+│   ├── config/        # Configuration and constants
+│   ├── database/      # Database connection and repositories
+│   ├── model/         # Data models
+│   ├── game/          # Core game logic
+│   ├── handler/       # HTTP/WebSocket handlers
+│   └── util/          # Utility functions
+├── migrations/        # Database migrations
+├── bin/               # Build output
+├── Dockerfile         # Docker configuration
+└── docker-compose.yml # Docker Compose configuration
+```
+
+For detailed refactoring documentation, see [README_REFACTORING.md](README_REFACTORING.md).
+
+## Requirements
+
+- Go 1.23+ (for local development)
+- PostgreSQL 16+ (for local development)
+- Docker & Docker Compose (recommended)
+
 ## How To
 
-### 啟動伺服器
+### 使用 Docker Compose 啟動 (推薦)
 
-```cmd
-$ go run main.go
+這是最簡單的方式，會自動啟動 PostgreSQL 資料庫和應用程式：
+
+```bash
+# 啟動服務（首次會自動建置）
+docker-compose up
+
+# 背景執行
+docker-compose up -d
+
+# 查看日誌
+docker-compose logs -f app
+
+# 停止服務
+docker-compose down
+
+# 停止並刪除資料
+docker-compose down -v
 ```
+
+### 本地開發
+
+**1. 啟動 PostgreSQL 資料庫**
+
+使用 Docker：
+```bash
+docker run -d \
+  --name antimartingale-postgres \
+  -e POSTGRES_PASSWORD=postgres \
+  -e POSTGRES_DB=antimartingale \
+  -p 5432:5432 \
+  postgres:16-alpine
+```
+
+或使用系統安裝的 PostgreSQL。
+
+**2. 設定環境變數**
+
+複製環境變數範例檔：
+```bash
+cp .env.example .env
+```
+
+根據需要修改 `.env` 檔案中的設定。
+
+**3. 執行應用程式**
+
+**使用 Makefile:**
+```bash
+# 建置
+make build
+
+# 執行
+make run
+
+# 清理
+make clean
+```
+
+**使用 Go 指令:**
+```bash
+# 安裝依賴
+go mod download
+
+# 建置
+go build -o bin/server ./cmd/server
+
+# 執行
+go run ./cmd/server
+
+# 或執行已建置的檔案
+./bin/server
+```
+
+## 環境變數
+
+| 變數名稱 | 預設值 | 說明 |
+|---------|--------|------|
+| DB_HOST | localhost | 資料庫主機 |
+| DB_PORT | 5432 | 資料庫埠號 |
+| DB_USER | postgres | 資料庫使用者 |
+| DB_PASSWORD | postgres | 資料庫密碼 |
+| DB_NAME | antimartingale | 資料庫名稱 |
+| DB_SSLMODE | disable | SSL 模式 |
+| SERVER_PORT | :8080 | 伺服器埠號 |
+
+## CI/CD Integration
+
+The project includes comprehensive CI/CD support for automated testing, building, and deployment.
+
+### Makefile Targets
+
+```bash
+# View all available commands
+make help
+
+# CI/CD targets
+make ci                 # Run complete CI pipeline (lint + test + build)
+make ci-test            # Run tests with coverage
+make ci-lint            # Run linters and format checks
+make ci-build           # Build optimized binary
+make coverage           # Generate HTML coverage report
+make check              # Run pre-commit checks
+
+# Deployment targets
+make deploy-docker      # Deploy with Docker Compose
+make deploy-production  # Build production binary for Linux
+```
+
+### GitHub Actions
+
+The project includes a complete CI/CD pipeline in `.github/workflows/ci.yml`:
+
+- **Automated Testing**: Runs on every push and pull request
+- **Code Coverage**: Automatically uploads to Codecov
+- **Docker Build**: Builds and pushes Docker images on main branch
+- **Deployment**: Manual deployment trigger for production
+
+**Setup:**
+1. Add repository secrets in GitHub Settings:
+   - `DOCKER_USERNAME`: Your Docker Hub username
+   - `DOCKER_PASSWORD`: Your Docker Hub password/token
+
+### GitLab CI/CD
+
+Alternative GitLab CI configuration in `.gitlab-ci.yml`:
+
+- **Test Stage**: Runs tests with PostgreSQL service
+- **Build Stage**: Builds binary and Docker image
+- **Deploy Stage**: Manual production deployment
+
+### Cloud Service Integration
+
+The Makefile serves as the primary entry point for all cloud CI/CD services:
+
+**Jenkins:**
+```groovy
+stage('Build') {
+    steps {
+        sh 'make ci'
+    }
+}
+```
+
+**CircleCI:**
+```yaml
+- run: make ci
+```
+
+**Travis CI:**
+```yaml
+script:
+  - make ci
+```
+
+**AWS CodeBuild:**
+```yaml
+build:
+  commands:
+    - make ci
+```
+
+For detailed deployment instructions, see [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ### API 說明
 
